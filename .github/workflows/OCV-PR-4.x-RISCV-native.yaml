@@ -70,7 +70,24 @@ jobs:
           libopenexr-dev \
           libwebp-dev \
           libopenjp2-7-dev \
-          libgtk-3-dev
+          libgtk-3-dev \
+          gcc-14 \
+          g++-14
+        sudo sh -c 'cd /usr/bin && \
+          rm -f gcc && \
+          ln -s gcc-14 gcc && \
+          rm -f g++ && \
+          ln -s g++-14 g++ && \
+          rm -f gcc-ar && \
+          ln -s gcc-ar-14 gcc-ar && \
+          rm -f gcc-nm && \
+          ln -s gcc-nm-14 gcc-nm && \
+          rm -f gcc-ranlib && \
+          ln -s gcc-ranlib-14 gcc-ranlib && \
+          rm -f riscv64-linux-gnu-gcc && \
+          ln -s riscv64-linux-gnu-gcc-14 riscv64-linux-gnu-gcc && \
+          rm -f riscv64-linux-gnu-g++ && \
+          ln -s riscv64-linux-gnu-g++-14 riscv64-linux-gnu-g++'
 
     - name: Brief system information
       timeout-minutes: 5
@@ -264,7 +281,24 @@ jobs:
           pkg-config \
           libavcodec-dev \
           libavformat-dev \
-          libswscale-dev
+          libswscale-dev \
+          gcc-14 \
+          g++-14
+        sudo sh -c 'cd /usr/bin && \
+          rm -f gcc && \
+          ln -s gcc-14 gcc && \
+          rm -f g++ && \
+          ln -s g++-14 g++ && \
+          rm -f gcc-ar && \
+          ln -s gcc-ar-14 gcc-ar && \
+          rm -f gcc-nm && \
+          ln -s gcc-nm-14 gcc-nm && \
+          rm -f gcc-ranlib && \
+          ln -s gcc-ranlib-14 gcc-ranlib && \
+          rm -f riscv64-linux-gnu-gcc && \
+          ln -s riscv64-linux-gnu-gcc-14 riscv64-linux-gnu-gcc && \
+          rm -f riscv64-linux-gnu-g++ && \
+          ln -s riscv64-linux-gnu-g++-14 riscv64-linux-gnu-g++'
 
     - name: Brief system information
       timeout-minutes: 5
