@@ -13,39 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # 移除交叉编译工具链，因为我们在原生RISC-V环境
   EXTRA_CMAKE_OPTIONS: '-DBUILD_EXAMPLES=ON -DOPENCV_ENABLE_NONFREE=ON -DCPU_BASELINE=RVV -DCPU_BASELINE_REQUIRE=RVV -DRISCV_RVV_SCALABLE=ON'
   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
   PR_AUTHOR_FORK: ${{ github.event.pull_request.head.repo.full_name }}
   SOURCE_BRANCH_NAME: ${{ github.head_ref }}
   TARGET_BRANCH_NAME: ${{ github.base_ref }}
-  CCACHE_DIR: '/tmp/.ccache'
-  OPENCV_DOWNLOAD_PATH: '/tmp/binaries_cache'
-  OPENCV_TEST_DATA_PATH: '/tmp/opencv_extra/testdata'
-  OPENCV_CONTRIB_DOCKER_WORKDIR: '/tmp/opencv_contrib'
-  OPENCV_DOCKER_WORKDIR: '/tmp/opencv'
-  PYTHONPATH: '/tmp/build/python_loader:$PYTHONPATH'
-  # 移除QEMU，因为我们在原生RISC-V环境运行
-  TEST_RUNNER: ''
+  CCACHE_DIR: '.ccache'
+  OPENCV_DOWNLOAD_PATH: 'binaries_cache'
+  OPENCV_TEST_DATA_PATH: 'opencv_extra/testdata'
+  OPENCV_CONTRIB_PATH: 'opencv_contrib'
+  OPENCV_PATH: 'opencv'
+  BUILD_PATH: 'build'
+  PYTHONPATH: 'build/python_loader:$PYTHONPATH'
+  EXTRA_GTEST_OPTIONS: '--skip_unstable=1'
   GIT_COMMITTER_NAME: 'nouser'
   GIT_COMMITTER_EMAIL: 'noemail'
 
 jobs:
   BuildAndTest:
-    # 改为自托管运行器
     runs-on: [self-hosted, riscv64, linux]
 
     defaults:
       run:
         shell: bash
 
-    # 移除Docker容器配置
     steps:
     - name: Install prerequisites
       timeout-minutes: 30
       run: |
         sudo apt-get update || true
-        # 安装OpenCV编译依赖
         sudo apt-get install -y --no-install-recommends \
           build-essential \
           cmake \
@@ -87,25 +83,22 @@ jobs:
         free -h
         echo "=== Disk Information ==="
         df -h
+        echo "=== Current Directory ==="
+        pwd
+        ls -la
 
     - name: Setup environment
       timeout-minutes: 5
       run: |
         mkdir -p ${{ env.CCACHE_DIR }}
         mkdir -p ${{ env.OPENCV_DOWNLOAD_PATH }}
-        mkdir -p ${{ env.OPENCV_DOCKER_WORKDIR }}
-        mkdir -p ${{ env.OPENCV_CONTRIB_DOCKER_WORKDIR }}
+        mkdir -p ${{ env.BUILD_PATH }}
 
     - name: Setup infra environment
       timeout-minutes: 5
       if: ${{ github.event.repository.name == 'ci-gha-workflow' }}
       run: |
         echo "TARGET_BRANCH_NAME=4.x" >> $GITHUB_ENV
-
-    - name: Setup test environment
-      if: ${{ github.event.repository.name != 'ci-gha-workflow' }}
-      run: |
-        echo "EXTRA_GTEST_OPTIONS=--skip_unstable=1" >> $GITHUB_ENV
 
     - name: PR info
       timeout-minutes: 5
@@ -114,55 +107,86 @@ jobs:
         echo "PR Author fork: ${{ env.PR_AUTHOR_FORK }}"
         echo "Source branch name: ${{ env.SOURCE_BRANCH_NAME }}"
         echo "Target branch name: ${{ env.TARGET_BRANCH_NAME }}"
+        echo "Workspace: ${{ github.workspace }}"
 
     - name: Clean workspace
       timeout-minutes: 5
       run: |
-        rm -rf ${{ env.OPENCV_DOCKER_WORKDIR }}/*
+        # 清理旧的构建
+        rm -rf ${{ env.BUILD_PATH }}/*
+        # 清理opencv目录（如果需要）
+        if [ -d "${{ env.OPENCV_PATH }}/.git" ]; then
+          echo "OpenCV directory exists, cleaning..."
+          cd ${{ env.OPENCV_PATH }}
+          git clean -fdx
+          git reset --hard
+        fi
 
-    - name: Checkout OpenCV
-      uses: actions/checkout@v4
-      with:
-        repository: zqb-all/opencv
-        ref: ${{ env.TARGET_BRANCH_NAME }}
-        path: ${{ env.OPENCV_DOCKER_WORKDIR }}
+    - name: Clone OpenCV
+      timeout-minutes: 10
+      run: |
+        if [ -d "${{ env.OPENCV_PATH }}/.git" ]; then
+          echo "Updating existing OpenCV repository..."
+          cd ${{ env.OPENCV_PATH }}
+          git fetch origin
+          git checkout ${{ env.TARGET_BRANCH_NAME }}
+          git reset --hard origin/${{ env.TARGET_BRANCH_NAME }}
+        else
+          echo "Cloning OpenCV repository..."
+          git clone \
+            --depth 1 \
+            --branch ${{ env.TARGET_BRANCH_NAME }} \
+            https://github.com/zqb-all/opencv.git \
+            ${{ env.OPENCV_PATH }}
+        fi
 
     - name: Merge with PR branch
       timeout-minutes: 5
       if: ${{ github.event.repository.name != 'ci-gha-workflow' }}
       run: |
-        cd ${{ env.OPENCV_DOCKER_WORKDIR }}
-        git remote add upstream "https://github.com/${{ env.PR_AUTHOR_FORK }}.git"
-        git fetch upstream ${{ env.SOURCE_BRANCH_NAME }}
-        git merge --no-commit --no-ff upstream/${{ env.SOURCE_BRANCH_NAME }}
+        cd ${{ env.OPENCV_PATH }}
+        echo "Fetching PR branch..."
+        git fetch https://github.com/${{ env.PR_AUTHOR_FORK }}.git ${{ env.SOURCE_BRANCH_NAME }}
+        echo "Merging PR changes..."
+        git merge --no-commit --no-ff FETCH_HEAD
 
-    - name: Checkout OpenCV extra
-      uses: actions/checkout@v4
-      with:
-        repository: opencv/opencv_extra
-        ref: ${{ env.TARGET_BRANCH_NAME }}
-        path: ${{ env.OPENCV_TEST_DATA_PATH }}
+    - name: Clone OpenCV extra
+      timeout-minutes: 10
+      run: |
+        if [ -d "opencv_extra/.git" ]; then
+          echo "Updating existing OpenCV extra repository..."
+          cd opencv_extra
+          git fetch origin
+          git checkout ${{ env.TARGET_BRANCH_NAME }}
+          git reset --hard origin/${{ env.TARGET_BRANCH_NAME }}
+        else
+          echo "Cloning OpenCV extra repository..."
+          git clone \
+            --depth 1 \
+            --branch ${{ env.TARGET_BRANCH_NAME }} \
+            https://github.com/opencv/opencv_extra.git
+        fi
 
     - name: Merge opencv_extra with PR branch
       timeout-minutes: 5
       if: ${{ github.event.repository.name != 'ci-gha-workflow' }}
       run: |
-        if curl -s -I "https://github.com/${{ env.PR_AUTHOR }}/opencv_extra" | head -n 1 | grep -q "200"; then
-          cd ${{ env.OPENCV_TEST_DATA_PATH }}
-          git remote add upstream "https://github.com/${{ env.PR_AUTHOR }}/opencv_extra.git"
-          git fetch upstream ${{ env.SOURCE_BRANCH_NAME }}
-          git merge --no-commit --no-ff upstream/${{ env.SOURCE_BRANCH_NAME }} 2>/dev/null || echo "No matching branch in opencv_extra"
+        cd opencv_extra
+        # 检查PR作者是否有opencv_extra的分支
+        if git ls-remote --heads "https://github.com/${{ env.PR_AUTHOR }}/opencv_extra" "${{ env.SOURCE_BRANCH_NAME }}" | grep -q "refs/heads"; then
+          echo "Merging opencv_extra with PR branch..."
+          git fetch https://github.com/${{ env.PR_AUTHOR }}/opencv_contrib.git ${{ env.SOURCE_BRANCH_NAME }}
+          git merge --no-commit --no-ff FETCH_HEAD || echo "Merge failed or no changes"
         else
-          echo "opencv_extra fork not found for PR author"
+          echo "No matching branch in opencv_extra fork, using main repo"
         fi
 
     - name: Configure OpenCV
       timeout-minutes: 30
       run: |
-        mkdir -p /tmp/build
-        cd /tmp/build
+        cd ${{ env.BUILD_PATH }}
         cmake -G Ninja \
-          -S ${{ env.OPENCV_DOCKER_WORKDIR }} \
+          -S ../${{ env.OPENCV_PATH }} \
           -B . \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_TESTS=ON \
@@ -175,22 +199,23 @@ jobs:
       timeout-minutes: 120
       id: build-opencv
       run: |
-        cd /tmp/build
+        cd ${{ env.BUILD_PATH }}
         ninja -j$(nproc) 2>&1 | tee build-log.txt
 
     - name: Warnings check
       timeout-minutes: 10
       run: |
-        if [ -f /tmp/build/build-log.txt ]; then
-          grep -i "warning:" /tmp/build/build-log.txt | head -20 || true
+        if [ -f "${{ env.BUILD_PATH }}/build-log.txt" ]; then
+          echo "=== Build Warnings (first 20) ==="
+          grep -i "warning:" ${{ env.BUILD_PATH }}/build-log.txt | head -20 || echo "No warnings found"
         fi
 
     - name: Accuracy:core
       timeout-minutes: 90
       if: ${{ always() && steps.build-opencv.outcome == 'success' }}
       run: |
-        cd /tmp/build
-        ./bin/opencv_test_core \
+        cd ${{ env.BUILD_PATH }}
+        OPENCV_TEST_DATA_PATH=../opencv_extra/testdata ./bin/opencv_test_core \
           ${{ env.EXTRA_GTEST_OPTIONS }} \
           --gtest_filter=*
 
@@ -198,8 +223,8 @@ jobs:
       timeout-minutes: 60
       if: ${{ always() && steps.build-opencv.outcome == 'success' }}
       run: |
-        cd /tmp/build
-        ./bin/opencv_test_imgproc \
+        cd ${{ env.BUILD_PATH }}
+        OPENCV_TEST_DATA_PATH=../opencv_extra/testdata ./bin/opencv_test_imgproc \
           ${{ env.EXTRA_GTEST_OPTIONS }} \
           --gtest_filter=*:-Imgproc_Hist_Compare.accuracy
 
@@ -207,13 +232,12 @@ jobs:
       timeout-minutes: 60
       if: ${{ always() && steps.build-opencv.outcome == 'success' }}
       run: |
-        cd /tmp/build
-        ./bin/opencv_test_dnn \
+        cd ${{ env.BUILD_PATH }}
+        OPENCV_TEST_DATA_PATH=../opencv_extra/testdata ./bin/opencv_test_dnn \
           ${{ env.EXTRA_GTEST_OPTIONS }} \
           --gtest_filter=*
 
   BuildContrib:
-    # 改为自托管运行器
     runs-on: [self-hosted, riscv64, linux]
 
     defaults:
@@ -251,14 +275,14 @@ jobs:
         cat /proc/cpuinfo
         echo "=== Memory Information ==="
         free -h
+        echo "=== Current Directory ==="
+        pwd
 
     - name: Setup environment
       timeout-minutes: 5
       run: |
-        mkdir -p /tmp/.ccache
-        mkdir -p /tmp/opencv
-        mkdir -p /tmp/opencv_contrib
-        mkdir -p /tmp/build
+        mkdir -p ${{ env.CCACHE_DIR }}
+        mkdir -p ${{ env.BUILD_PATH }}
 
     - name: Setup infra environment
       timeout-minutes: 5
@@ -277,69 +301,99 @@ jobs:
     - name: Clean workspace
       timeout-minutes: 5
       run: |
-        rm -rf /tmp/opencv/*
+        # 清理旧的构建
+        rm -rf ${{ env.BUILD_PATH }}/*
+        # 清理opencv目录（如果需要）
+        if [ -d "${{ env.OPENCV_PATH }}/.git" ]; then
+          echo "OpenCV directory exists, cleaning..."
+          cd ${{ env.OPENCV_PATH }}
+          git clean -fdx
+          git reset --hard
+        fi
 
-    - name: Checkout OpenCV
-      uses: actions/checkout@v4
-      with:
-        repository: zqb-all/opencv
-        ref: ${{ env.TARGET_BRANCH_NAME }}
-        path: /tmp/opencv
+    - name: Clone OpenCV
+      timeout-minutes: 10
+      run: |
+        if [ -d "${{ env.OPENCV_PATH }}/.git" ]; then
+          echo "Updating existing OpenCV repository..."
+          cd ${{ env.OPENCV_PATH }}
+          git fetch origin
+          git checkout ${{ env.TARGET_BRANCH_NAME }}
+          git reset --hard origin/${{ env.TARGET_BRANCH_NAME }}
+        else
+          echo "Cloning OpenCV repository..."
+          git clone \
+            --depth 1 \
+            --branch ${{ env.TARGET_BRANCH_NAME }} \
+            https://github.com/zqb-all/opencv.git \
+            ${{ env.OPENCV_PATH }}
+        fi
 
     - name: Merge with PR branch
       timeout-minutes: 5
       if: ${{ github.event.repository.name != 'ci-gha-workflow' }}
       run: |
-        cd /tmp/opencv
-        git remote add upstream "https://github.com/${{ env.PR_AUTHOR_FORK }}.git"
-        git fetch upstream ${{ env.SOURCE_BRANCH_NAME }}
-        git merge --no-commit --no-ff upstream/${{ env.SOURCE_BRANCH_NAME }}
+        cd ${{ env.OPENCV_PATH }}
+        echo "Fetching PR branch..."
+        git fetch https://github.com/${{ env.PR_AUTHOR_FORK }}.git ${{ env.SOURCE_BRANCH_NAME }}
+        echo "Merging PR changes..."
+        git merge --no-commit --no-ff FETCH_HEAD
 
-    - name: Checkout OpenCV contrib
-      uses: actions/checkout@v4
-      with:
-        repository: opencv/opencv_contrib
-        ref: ${{ env.TARGET_BRANCH_NAME }}
-        path: /tmp/opencv_contrib
+    - name: Clone OpenCV contrib
+      timeout-minutes: 10
+      run: |
+        if [ -d "${{ env.OPENCV_CONTRIB_PATH }}/.git" ]; then
+          echo "Updating existing OpenCV contrib repository..."
+          cd ${{ env.OPENCV_CONTRIB_PATH }}
+          git fetch origin
+          git checkout ${{ env.TARGET_BRANCH_NAME }}
+          git reset --hard origin/${{ env.TARGET_BRANCH_NAME }}
+        else
+          echo "Cloning OpenCV contrib repository..."
+          git clone \
+            --depth 1 \
+            --branch ${{ env.TARGET_BRANCH_NAME }} \
+            https://github.com/opencv/opencv_contrib.git \
+            ${{ env.OPENCV_CONTRIB_PATH }}
+        fi
 
     - name: Merge opencv_contrib with PR branch
       timeout-minutes: 5
       if: ${{ github.event.repository.name != 'ci-gha-workflow' }}
       run: |
-        if curl -s -I "https://github.com/${{ env.PR_AUTHOR }}/opencv_contrib" | head -n 1 | grep -q "200"; then
-          cd /tmp/opencv_contrib
-          git remote add upstream "https://github.com/${{ env.PR_AUTHOR }}/opencv_contrib.git"
-          git fetch upstream ${{ env.SOURCE_BRANCH_NAME }}
-          git merge --no-commit --no-ff upstream/${{ env.SOURCE_BRANCH_NAME }} 2>/dev/null || echo "No matching branch in opencv_contrib"
+        cd ${{ env.OPENCV_CONTRIB_PATH }}
+        # 检查PR作者是否有opencv_contrib的分支
+        if git ls-remote --heads "https://github.com/${{ env.PR_AUTHOR }}/opencv_contrib" "${{ env.SOURCE_BRANCH_NAME }}" | grep -q "refs/heads"; then
+          echo "Merging opencv_contrib with PR branch..."
+          git fetch https://github.com/${{ env.PR_AUTHOR }}/opencv_contrib.git ${{ env.SOURCE_BRANCH_NAME }}
+          git merge --no-commit --no-ff FETCH_HEAD || echo "Merge failed or no changes"
         else
-          echo "opencv_contrib fork not found for PR author"
+          echo "No matching branch in opencv_contrib fork, using main repo"
         fi
 
     - name: Configure OpenCV with contrib
       timeout-minutes: 30
       run: |
-        cd /tmp/build
+        cd ${{ env.BUILD_PATH }}
         cmake -G Ninja \
-          -S /tmp/opencv \
+          -S ../${{ env.OPENCV_PATH }} \
           -B . \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_TESTS=ON \
-          -DOPENCV_EXTRA_MODULES_PATH=/tmp/opencv_contrib/modules \
+          -DOPENCV_EXTRA_MODULES_PATH=../${{ env.OPENCV_CONTRIB_PATH }}/modules \
           ${{ env.EXTRA_CMAKE_OPTIONS }}
 
     - name: Build OpenCV with contrib
       timeout-minutes: 120
       run: |
-        cd /tmp/build
+        cd ${{ env.BUILD_PATH }}
         ninja -j$(nproc) 2>&1 | tee build-log.txt
 
     - name: Warnings check
       timeout-minutes: 10
       run: |
-        if [ -f /tmp/build/build-log.txt ]; then
-          grep -i "warning:" /tmp/build/build-log.txt | head -20 || true
+        if [ -f "${{ env.BUILD_PATH }}/build-log.txt" ]; then
+          echo "=== Build Warnings (first 20) ==="
+          grep -i "warning:" ${{ env.BUILD_PATH }}/build-log.txt | head -20 || echo "No warnings found"
         fi
-
-
-
 
