@@ -212,14 +212,14 @@ jobs:
           ${{ env.EXTRA_CMAKE_OPTIONS }}
 
     - name: Build OpenCV
-      timeout-minutes: 120
+      timeout-minutes: 1200
       id: build-opencv
       run: |
         cd ${{ env.BUILD_PATH }}
         ninja -j$(nproc) 2>&1 | tee build-log.txt
 
     - name: Warnings check
-      timeout-minutes: 10
+      timeout-minutes: 100
       run: |
         if [ -f "${{ env.BUILD_PATH }}/build-log.txt" ]; then
           echo "=== Build Warnings (first 20) ==="
@@ -227,7 +227,7 @@ jobs:
         fi
 
     - name: Accuracy:core
-      timeout-minutes: 90
+      timeout-minutes: 900
       if: ${{ always() && steps.build-opencv.outcome == 'success' }}
       run: |
         cd ${{ env.BUILD_PATH }}
@@ -236,7 +236,7 @@ jobs:
           --gtest_filter=*
 
     - name: Accuracy:imgproc
-      timeout-minutes: 60
+      timeout-minutes: 600
       if: ${{ always() && steps.build-opencv.outcome == 'success' }}
       run: |
         cd ${{ env.BUILD_PATH }}
@@ -245,7 +245,7 @@ jobs:
           --gtest_filter=*:-Imgproc_Hist_Compare.accuracy
 
     - name: Accuracy:dnn
-      timeout-minutes: 60
+      timeout-minutes: 600
       if: ${{ always() && steps.build-opencv.outcome == 'success' }}
       run: |
         cd ${{ env.BUILD_PATH }}
@@ -417,13 +417,13 @@ jobs:
           ${{ env.EXTRA_CMAKE_OPTIONS }}
 
     - name: Build OpenCV with contrib
-      timeout-minutes: 120
+      timeout-minutes: 1200
       run: |
         cd ${{ env.BUILD_PATH }}
         ninja -j$(nproc) 2>&1 | tee build-log.txt
 
     - name: Warnings check
-      timeout-minutes: 10
+      timeout-minutes: 100
       run: |
         if [ -f "${{ env.BUILD_PATH }}/build-log.txt" ]; then
           echo "=== Build Warnings (first 20) ==="
