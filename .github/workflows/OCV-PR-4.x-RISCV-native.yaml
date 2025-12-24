@@ -19,7 +19,6 @@ env:
   SOURCE_BRANCH_NAME: ${{ github.head_ref }}
   TARGET_BRANCH_NAME: ${{ github.base_ref }}
   CCACHE_DIR: '.ccache'
-  OPENCV_DOWNLOAD_PATH: 'binaries_cache'
   OPENCV_TEST_DATA_PATH: 'opencv_extra/testdata'
   OPENCV_CONTRIB_PATH: 'opencv_contrib'
   OPENCV_PATH: 'opencv'
@@ -108,7 +107,7 @@ jobs:
       timeout-minutes: 5
       run: |
         mkdir -p ${{ env.CCACHE_DIR }}
-        mkdir -p ${{ env.OPENCV_DOWNLOAD_PATH }}
+        # mkdir -p ${{ env.OPENCV_DOWNLOAD_PATH }}
         mkdir -p ${{ env.BUILD_PATH }}
 
     - name: Setup infra environment
